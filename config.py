@@ -17,5 +17,5 @@ TIMEZONE = "Europe/Moscow"
 
 DB_PATH = os.getenv("DB_PATH", "posts.db")
 
-TEXT_MODEL = "gemini-2.5-flash"
-IMAGE_MODEL = "imagen-3.0-generate-002"
+TEXT_MODEL = "gemini-3.6-flash"
+IMAGE_MODEL = "gemini-3.1-flash-image"
