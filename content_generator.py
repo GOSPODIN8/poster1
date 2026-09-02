@@ -52,13 +52,16 @@ def generate_post_text() -> str:
 def generate_post_image(topic_hint: str) -> bytes | None:
     prompt = IMAGE_PROMPT_TEMPLATE.format(topic_hint=topic_hint)
     try:
-        response = client.models.generate_images(
+        response = client.models.generate_content(
             model=config.IMAGE_MODEL,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(number_of_images=1),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["Text", "Image"],
+            ),
         )
-        if response.generated_images:
-            return response.generated_images[0].image.image_bytes
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                return part.inline_data.data
     except Exception:
         logger.exception("Не удалось сгенерировать изображение, пост уйдёт без картинки")
     return None
@@ -68,3 +71,4 @@ def generate_post() -> tuple[str, bytes | None]:
     text = generate_post_text()
     image_bytes = generate_post_image(text[:120])
     return text, image_bytes
+
