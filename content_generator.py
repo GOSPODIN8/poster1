@@ -1,6 +1,8 @@
 import logging
 import random
+import urllib.parse
 
+import requests
 from google import genai
 from google.genai import types
 
@@ -53,6 +55,8 @@ def generate_post_text() -> str:
 
 def generate_post_image(topic_hint: str) -> tuple[bytes | None, str | None]:
     prompt = IMAGE_PROMPT_TEMPLATE.format(topic_hint=topic_hint)
+    gemini_error = None
+
     try:
         response = client.models.generate_content(
             model=config.IMAGE_MODEL,
@@ -62,16 +66,34 @@ def generate_post_image(topic_hint: str) -> tuple[bytes | None, str | None]:
             ),
         )
         candidates = response.candidates or []
-        if not candidates or not candidates[0].content or not candidates[0].content.parts:
-            return None, f"Пустой ответ от модели изображений (finish_reason={getattr(candidates[0], 'finish_reason', '?') if candidates else '?'})"
-
-        for part in candidates[0].content.parts:
-            if part.inline_data:
-                return part.inline_data.data, None
-
-        return None, "В ответе модели не нашлось картинки (только текст)"
+        if candidates and candidates[0].content and candidates[0].content.parts:
+            for part in candidates[0].content.parts:
+                if part.inline_data:
+                    return part.inline_data.data, None
+            gemini_error = "В ответе модели не нашлось картинки (только текст)"
+        else:
+            gemini_error = "Пустой ответ от модели изображений"
     except Exception as e:
-        logger.exception("Не удалось сгенерировать изображение, пост уйдёт без картинки")
+        logger.warning(f"Gemini image gen не сработал ({e}), пробую запасной вариант")
+        gemini_error = f"{type(e).__name__}: {e}"
+
+    # Запасной вариант: бесплатный сервис без API-ключа и лимитов биллинга
+    image_bytes, fallback_error = generate_post_image_fallback(prompt)
+    if image_bytes:
+        return image_bytes, None
+
+    return None, f"Gemini: {gemini_error}; запасной вариант: {fallback_error}"
+
+
+def generate_post_image_fallback(prompt: str) -> tuple[bytes | None, str | None]:
+    try:
+        encoded = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=576&nologo=true"
+        resp = requests.get(url, timeout=45)
+        resp.raise_for_status()
+        return resp.content, None
+    except Exception as e:
+        logger.exception("Запасной генератор картинок тоже не сработал")
         return None, f"{type(e).__name__}: {e}"
 
 
@@ -79,5 +101,4 @@ def generate_post() -> tuple[str, bytes | None, str | None]:
     text = generate_post_text()
     image_bytes, image_error = generate_post_image(text[:120])
     return text, image_bytes, image_error
-
 
