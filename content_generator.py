@@ -1,8 +1,6 @@
 import logging
 import random
-import urllib.parse
 
-import requests
 from google import genai
 from google.genai import types
 
@@ -37,8 +35,22 @@ TEXT_PROMPT_TEMPLATE = """Ты — автор Telegram-канала про др�
 
 Верни ТОЛЬКО текст поста, без заголовков вида "Пост:" и без кавычек."""
 
-IMAGE_PROMPT_TEMPLATE = """A clean, modern, professional illustration for a social media post about dropshipping and e-commerce business, topic: {topic_hint}.
-Style: flat design, minimal, bright colors, business/tech aesthetic, no text or letters in the image, no logos, 16:9 aspect ratio."""
+IMAGE_PROMPT_TEMPLATE = """Using the attached reference photo of a person, create a horizontal 16:9 promotional poster-style image featuring that exact same person — keep their face, hairstyle and identity clearly recognizable and consistent with the reference photo.
+
+Put them in a pose, outfit and setting that fits this post topic: {topic_hint}
+Vary the pose, clothing and setting each time so it doesn't look like a repeated photo — but the face must always match the reference.
+
+Visual style: vintage halftone-print poster aesthetic, bold high-contrast limited color palette of deep red, black and cream/off-white, dramatic cinematic lighting, grainy retro print texture, strong graphic silhouette, confident/powerful business mood. No text, no letters, no logos, no watermarks anywhere in the image.
+
+Aspect ratio: 16:9 landscape."""
+
+
+REFERENCE_IMAGE_PATH = "assets/person_reference.jpg"
+
+
+def _load_reference_image() -> bytes:
+    with open(REFERENCE_IMAGE_PATH, "rb") as f:
+        return f.read()
 
 
 def generate_post_text() -> str:
@@ -55,14 +67,16 @@ def generate_post_text() -> str:
 
 def generate_post_image(topic_hint: str) -> tuple[bytes | None, str | None]:
     prompt = IMAGE_PROMPT_TEMPLATE.format(topic_hint=topic_hint)
-    gemini_error = None
-
     try:
+        ref_bytes = _load_reference_image()
+        ref_part = types.Part.from_bytes(data=ref_bytes, mime_type="image/jpeg")
+
         response = client.models.generate_content(
             model=config.IMAGE_MODEL,
-            contents=prompt,
+            contents=[ref_part, prompt],
             config=types.GenerateContentConfig(
                 response_modalities=["Text", "Image"],
+                image_config=types.ImageConfig(aspect_ratio="16:9"),
             ),
         )
         candidates = response.candidates or []
@@ -70,30 +84,10 @@ def generate_post_image(topic_hint: str) -> tuple[bytes | None, str | None]:
             for part in candidates[0].content.parts:
                 if part.inline_data:
                     return part.inline_data.data, None
-            gemini_error = "В ответе модели не нашлось картинки (только текст)"
-        else:
-            gemini_error = "Пустой ответ от модели изображений"
+            return None, "В ответе модели не нашлось картинки (только текст)"
+        return None, "Пустой ответ от модели изображений"
     except Exception as e:
-        logger.warning(f"Gemini image gen не сработал ({e}), пробую запасной вариант")
-        gemini_error = f"{type(e).__name__}: {e}"
-
-    # Запасной вариант: бесплатный сервис без API-ключа и лимитов биллинга
-    image_bytes, fallback_error = generate_post_image_fallback(prompt)
-    if image_bytes:
-        return image_bytes, None
-
-    return None, f"Gemini: {gemini_error}; запасной вариант: {fallback_error}"
-
-
-def generate_post_image_fallback(prompt: str) -> tuple[bytes | None, str | None]:
-    try:
-        encoded = urllib.parse.quote(prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=576&nologo=true"
-        resp = requests.get(url, timeout=45)
-        resp.raise_for_status()
-        return resp.content, None
-    except Exception as e:
-        logger.exception("Запасной генератор картинок тоже не сработал")
+        logger.exception("Не удалось сгенерировать изображение, пост уйдёт без картинки")
         return None, f"{type(e).__name__}: {e}"
 
 
@@ -101,4 +95,3 @@ def generate_post() -> tuple[str, bytes | None, str | None]:
     text = generate_post_text()
     image_bytes, image_error = generate_post_image(text[:120])
     return text, image_bytes, image_error
-
