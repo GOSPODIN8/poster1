@@ -24,11 +24,13 @@ TEXT_PROMPT_TEMPLATE = """Ты — автор Telegram-канала про др�
 Требования:
 - Язык: русский
 - Длина: 500-900 символов
-- Формат: living-текст с эмодзи по смыслу (не перебарщивай), можно короткие абзацы или список
+- Формат: используй HTML-теги <b>...</b>, чтобы выделить жирным ключевые фразы, цифры, названия ниш и важные мысли (не весь текст, а отдельные акценты — 3-5 выделений на пост)
+- Уместно расставляй эмодзи по смыслу текста (в начале смысловых блоков, у списков, у выделенных фраз) — не более 1 эмодзи на предложение
+- Можно короткие абзацы или список с эмодзи вместо точек
 - В конце поста — мягкий призыв вступить в закрытый клуб «Клуб Единомышленников», где разбираются темы глубже.
   Стиль призыва: {cta_style}.
   Ссылку вставь ТОЧНО в таком виде: {club_link}
-- Не используй Markdown-разметку (**, __ и т.п.), только обычный текст и эмодзи, т.к. пост отправляется как HTML caption в Telegram
+- Разрешены ТОЛЬКО HTML-теги <b> и </b> для жирного текста. Никакой другой разметки (**, __, #, markdown-списков) не используй — пост отправляется как HTML caption в Telegram
 - Не повторяй одну и ту же тему каждый раз — выбери случайную конкретную подтему дропшиппинга (ниши, поставщики, реклама, воронки, психология продаж, ошибки новичков, автоматизация и т.д.)
 
 Верни ТОЛЬКО текст поста, без заголовков вида "Пост:" и без кавычек."""
@@ -49,7 +51,7 @@ def generate_post_text() -> str:
     return text
 
 
-def generate_post_image(topic_hint: str) -> bytes | None:
+def generate_post_image(topic_hint: str) -> tuple[bytes | None, str | None]:
     prompt = IMAGE_PROMPT_TEMPLATE.format(topic_hint=topic_hint)
     try:
         response = client.models.generate_content(
@@ -59,16 +61,23 @@ def generate_post_image(topic_hint: str) -> bytes | None:
                 response_modalities=["Text", "Image"],
             ),
         )
-        for part in response.candidates[0].content.parts:
+        candidates = response.candidates or []
+        if not candidates or not candidates[0].content or not candidates[0].content.parts:
+            return None, f"Пустой ответ от модели изображений (finish_reason={getattr(candidates[0], 'finish_reason', '?') if candidates else '?'})"
+
+        for part in candidates[0].content.parts:
             if part.inline_data:
-                return part.inline_data.data
-    except Exception:
+                return part.inline_data.data, None
+
+        return None, "В ответе модели не нашлось картинки (только текст)"
+    except Exception as e:
         logger.exception("Не удалось сгенерировать изображение, пост уйдёт без картинки")
-    return None
+        return None, f"{type(e).__name__}: {e}"
 
 
-def generate_post() -> tuple[str, bytes | None]:
+def generate_post() -> tuple[str, bytes | None, str | None]:
     text = generate_post_text()
-    image_bytes = generate_post_image(text[:120])
-    return text, image_bytes
+    image_bytes, image_error = generate_post_image(text[:120])
+    return text, image_bytes, image_error
+
 
