@@ -26,7 +26,7 @@ async def post_to_channel():
     text = ""
     had_image = False
     try:
-        text, image_bytes = generate_post()
+        text, image_bytes, image_error = generate_post()
         had_image = image_bytes is not None
 
         if image_bytes:
@@ -34,6 +34,14 @@ async def post_to_channel():
             await bot.send_photo(chat_id=config.CHANNEL_USERNAME, photo=photo, caption=text)
         else:
             await bot.send_message(chat_id=config.CHANNEL_USERNAME, text=text)
+            if image_error and config.ADMIN_ID:
+                try:
+                    await bot.send_message(
+                        config.ADMIN_ID,
+                        f"⚠️ Пост опубликован БЕЗ картинки. Причина:\n{image_error}",
+                    )
+                except Exception:
+                    pass
 
         await db.log_post(text, had_image, success=True)
         logger.info("Пост опубликован успешно")
