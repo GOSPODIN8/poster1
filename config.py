@@ -11,7 +11,7 @@ CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@adrian_trape")
 CLUB_BOT_LINK = "https://t.me/clubBXOD_bot"
 
 # Времена постинга по МСК (5 раз в день)
-POST_TIMES_MSK = ["09:00", "12:30", "16:00", "19:00", "22:00"]
+POST_TIMES_MSK = ["16:00"]
 
 TIMEZONE = "Europe/Moscow"
 
